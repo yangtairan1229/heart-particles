@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070412">
+<meta name="description" content="可离线播放的 3D 粒子爱心、星光与背景音乐，无字幕。">
+<title>3D Particle Heart</title>
+<style>
+:root { color-scheme: dark; --ink:#fff0f8; --halo:rgba(255,120,187,.52); }
+* { box-sizing:border-box; }
+html, body { margin:0; width:100%; height:100%; min-height:100%; overflow:hidden; }
+body { background:radial-gradient(ellipse at 50% 50%,#210b2d 0%,#070313 52%,#04010b 100%); color:var(--ink); font-family:system-ui,sans-serif; -webkit-tap-highlight-color:transparent; overscroll-behavior:none; }
+.layout { position:relative; width:100%; height:100vh; height:100dvh; display:flex; justify-content:center; align-items:center; overflow:hidden; }
+.frame { position:relative; aspect-ratio:9/16; width:min(100vw, 56.25vh); height:min(100vh, 177.7778vw); max-width:100%; flex:none; overflow:hidden; background:#07020f; box-shadow:0 0 100px #ec468112; }
+@supports (height: 100dvh) { .frame { width:min(100vw, 56.25dvh); height:min(100dvh, 177.7778vw); } }
+.frame::after { content:""; position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 82px #0005; }
+.frame canvas { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+#overlay { pointer-events:none; }
+.sr-only { position:absolute!important; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.toolbar { position:fixed; bottom:max(12px, env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); z-index:10; display:flex; align-items:center; justify-content:center; gap:13px; opacity:.82; transition:opacity .28s ease; }
+.toolbar:hover, .toolbar:focus-within, .toolbar.open { opacity:1; }
+.round { display:grid; place-items:center; height:48px; width:48px; flex:none; background:rgba(25,11,41,.57); color:#ffe0f0; border:1px solid rgba(255,208,235,.22); border-radius:999px; box-shadow:0 3px 15px #05020d80,inset 0 1px 0 #ffffff1f; -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); cursor:pointer; padding:0; outline-offset:4px; user-select:none; }
+.round:active { transform:scale(.94); }
+.round:focus-visible { outline:2px solid #ffadd3; }
+.round svg { width:21px; height:21px; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; fill:none; pointer-events:none; }
+.round.primary { height:54px; width:54px; background:radial-gradient(circle at 40% 35%,rgba(255,134,204,.78),rgba(153,64,154,.45)); box-shadow:0 0 26px #ec62ac45,0 7px 28px #05020e90; border-color:#ffc8e77f; }
+#soundBtn[data-playing="true"] .ico-play {display:none}
+#soundBtn[data-playing="false"] .ico-pause {display:none}
+#menuBtn[aria-expanded="true"] {background:rgba(149,72,152,.65)}
+.extras { position:absolute; bottom:calc(100% + 15px); left:50%; transform:translate(-50%,10px); width:max-content; max-width:calc(100vw - 20px); display:flex; align-items:center; gap:9px; border-radius:25px; padding:9px; background:#0c0716a8; border:1px solid #ffb3db26; -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .2s ease, transform .2s ease, visibility .2s ease; }
+.toolbar.open .extras { transform:translate(-50%,0); opacity:1; visibility:visible; pointer-events:auto; }
+.extras .round {height:43px; width:43px; background:rgba(68,39,77,.55)}
+.extras .round svg {width:19px;height:19px}
+#musicFile {position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+#recordBtn[data-recording="true"] {border-color:#ff5977;background:#70243da8;color:#ffadbd;box-shadow:0 0 22px #fa537b50}
+#themeBtn {background:radial-gradient(circle at 32% 22%,#ffd0ea 2%,#f65f9d 35%,#63288b 79%)}
+#themeBtn svg {filter:drop-shadow(0 1px 2px #2b0a42)}
+@media (max-width:520px) { .frame {box-shadow:none} .toolbar{bottom:max(11px,env(safe-area-inset-bottom) + 3px);gap:11px}.round{height:45px;width:45px}.round.primary{height:52px;width:52px}.extras{gap:6px;padding:7px;border-radius:22px}.extras .round{height:42px;width:42px} }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after {transition-duration:0s!important} }
+</style>
+</head>
+<body>
+<div class="layout" id="layout">
+  <main class="frame" id="frame" aria-label="粒子爱心：轻触爱心播放音乐，拖动可旋转视角">
+    <canvas id="scene" width="720" height="1280" aria-hidden="true"></canvas>
+    <canvas id="overlay" width="720" height="1280" aria-hidden="true"></canvas>
+  </main>
+  <!-- 所有控制按钮只显示图标，画布和录制视频中没有任何文字。 -->
+  <nav class="toolbar" id="toolbar" aria-label="播放与画面控制">
+    <button class="round primary" id="soundBtn" type="button" data-playing="false" aria-label="播放音乐" title="播放或暂停音乐">
+      <svg class="ico-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.6 19 12 8 18.4Z" fill="currentColor" stroke="none"/></svg>
+      <svg class="ico-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" stroke-width="3.2"/></svg>
+    </button>
+    <button class="round" id="menuBtn" type="button" aria-label="更多设置" aria-controls="extras" aria-expanded="false" title="更多设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/></svg>
+    </button>
+    <div class="extras" id="extras">
+      <button class="round" id="themeBtn" type="button" aria-label="切换粒子颜色" title="切换粒子颜色">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2a8.8 8.8 0 1 0 8.8 8.8c0-1.6-1.1-2.5-2.3-2.5h-2.1a1.7 1.7 0 0 1-1.2-2.9c1.2-1.2.3-3.4-3.2-3.4Z"/><circle cx="7.3" cy="10" r=".9" fill="currentColor"/><circle cx="11" cy="6.8" r=".9" fill="currentColor"/><circle cx="6.5" cy="14.6" r=".9" fill="currentColor"/></svg>
+      </button>
+      <label class="round" for="musicFile" role="button" aria-label="选择手机或电脑中的音乐" title="导入自己的音乐">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.2V5l10-2v12.3"/><ellipse cx="6" cy="18" rx="3" ry="2.2"/><ellipse cx="16" cy="16" rx="3" ry="2.2"/></svg>
+        <input id="musicFile" type="file" accept="audio/*">
+      </label>
+      <button class="round" id="photoBtn" type="button" aria-label="保存无文字封面" title="保存封面">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M7 6 8.5 4h7L17 6"/><circle cx="12" cy="13" r="3.3"/></svg>
+      </button>
+      <button class="round" id="recordBtn" type="button" data-recording="false" aria-label="开始录制15秒视频" title="录制15秒视频">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.2" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="round" id="fullBtn" type="button" aria-label="全屏播放" title="全屏播放">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 3H3v5.5M15.5 3H21v5.5M21 15.5V21h-5.5M8.5 21H3v-5.5"/></svg>
+      </button>
+    </div>
+  </nav>
+  <p class="sr-only" id="status" aria-live="polite" role="status"></p>
+</div>
+<script>
+(()=>{
+'use strict';
+// Config: 0 = pink, 1 = purple, 2 = blue, 3 = gold. No text is drawn on the scene.
+const CONFIG = { theme:0 };
+const W=720,H=1280,TAU=Math.PI*2,overlay=document.getElementById('overlay');let scene=document.getElementById('scene');
+const o=overlay.getContext('2d'),status=document.getElementById('status'),soundBtn=document.getElementById('soundBtn');
+const recordBtn=document.getElementById('recordBtn'),photoBtn=document.getElementById('photoBtn'),musicFile=document.getElementById('musicFile');
+const toolbar=document.getElementById('toolbar'),menuBtn=document.getElementById('menuBtn');
+const themeBtn=document.getElementById('themeBtn'),fullBtn=document.getElementById('fullBtn');
+menuBtn.onclick=()=>{const open=toolbar.classList.toggle('open');menuBtn.setAttribute('aria-expanded',String(open));};
+themeBtn.onclick=()=>{CONFIG.theme=(CONFIG.theme+1)%4;const t=['#ff78b9','#af83ff','#6bdcf4','#fbb962'][CONFIG.theme];themeBtn.style.background='radial-gradient(circle at 30% 24%,white,'+t+' 48%,#301047 94%)';};
+fullBtn.onclick=async()=>{
+ try{if(document.fullscreenElement){await document.exitFullscreen();return;}const root=document.getElementById('layout');if(root.requestFullscreen)await root.requestFullscreen();else if(root.webkitRequestFullscreen)root.webkitRequestFullscreen();else setStatus('当前浏览器不支持全屏，可横屏或添加到主屏幕。');}
+ catch(e){setStatus('当前浏览器不支持全屏：'+e.message)}
+};
+document.addEventListener('pointerdown',e=>{if(!toolbar.contains(e.target)&&toolbar.classList.contains('open')){toolbar.classList.remove('open');menuBtn.setAttribute('aria-expanded','false')}},{passive:true});
+const reduceMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(pointer:coarse)').matches;
+let start=performance.now(),introStart=start,beat=.0,beatLevel=.0,mouseYaw=0,mousePitch=0,clickStart=-100,pointer=null,mouseX=.5,mouseY=.5;
+function rand(a=1){return Math.random()*a}
+const themes=[
+ {a:'#ff67a7',b:'#ffd2ec',c:'#aa5ce1'},
+ {a:'#b888ff',b:'#f3d5ff',c:'#6c7bff'},
+ {a:'#5fdfff',b:'#c6ffff',c:'#5b8cff'},
+ {a:'#ffbe68',b:'#fff4c5',c:'#fa6b8e'}
+];
+function setStatus(s){status.textContent=s}
+function blobDownload(blob,filename){const u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),10000)}
+function shader(gl,type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+function program(gl,vs,fs){const p=gl.createProgram();gl.attachShader(p,shader(gl,gl.VERTEX_SHADER,vs));gl.attachShader(p,shader(gl,gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p}
+const gl=scene.getContext('webgl',{alpha:false,antialias:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
+let renderScene=()=>{},webglRenderReady=false;
+if(gl){
+ try{
+  const bg=program(gl,`
+attribute vec2 a_xy;void main(){gl_Position=vec4(a_xy,0.,1.);}
+`, `
+precision highp float;
+uniform vec2 u_res;uniform float u_t;uniform float u_beat;uniform float u_theme;
+void main(){
+ vec2 uv=gl_FragCoord.xy/u_res;vec2 p=(uv-vec2(.5,.515))*vec2(1.,.70);
+ vec3 rose=vec3(.50,.045,.30),blue=vec3(.05,.18,.42),gold=vec3(.46,.22,.06),purple=vec3(.25,.08,.47);
+ if(u_theme>.5&&u_theme<1.5)rose=purple;
+ if(u_theme>1.5&&u_theme<2.5)rose=blue;
+ if(u_theme>2.5)rose=gold;
+ vec3 col=vec3(.008,.005,.025);
+ float core=exp(-dot(p,p)*9.6);float aura=exp(-dot(p,p)*2.5);
+ col+=rose*(.105*core+.022*aura+.045*u_beat*core);
+ float waves=sin((uv.x*.9+uv.y*.32)*10.0+u_t*.085)*.5+.5;
+ col+=rose*.025*waves*exp(-dot(p-vec2(.2,.15),p-vec2(.2,.15))*3.);
+ float d=length(p);float ring=exp(-pow((d-.31)*140.,2.));
+ col+=rose*ring*.075;
+ float vign=1.0-smoothstep(.15,.77,length((uv-.5)*vec2(1.,.9)));
+ col*=.48+.52*vign;
+ float noise=fract(sin(dot(floor(gl_FragCoord.xy*.65),vec2(12.9898,78.233)))*43758.5453);
+ col+=(noise-.5)*.007;
+ gl_FragColor=vec4(col,1.);
+}
+`);
+ const pts=program(gl,`
+attribute vec3 a_pos;attribute vec3 a_spawn;attribute vec4 a_data;
+uniform vec2 u_res;uniform float u_t;uniform float u_intro;uniform float u_beat;uniform float u_yaw;uniform float u_pitch;uniform mediump float u_pass;uniform float u_theme;uniform vec2 u_hit;uniform float u_hitAge;
+varying vec3 v_rgb;varying float v_alpha;
+vec3 palette(float f,float type){
+ vec3 a=vec3(1.,.13,.43),b=vec3(1.,.78,.90),c=vec3(.73,.30,1.);
+ if(u_theme>.5&&u_theme<1.5){a=vec3(.60,.21,1.);b=vec3(.92,.78,1.);c=vec3(.31,.43,1.);}
+ if(u_theme>1.5&&u_theme<2.5){a=vec3(.11,.73,1.);b=vec3(.73,1.,1.);c=vec3(.26,.40,1.);}
+ if(u_theme>2.5){a=vec3(1.,.57,.12);b=vec3(1.,.94,.64);c=vec3(1.,.26,.38);}
+ vec3 v=mix(a,c,smoothstep(.12,.82,f));v=mix(v,b,pow(f,7.)*.78);
+ if(type>2.5&&type<3.5)v=mix(b,c,f*.6);
+ return v;
+}
+void main(){
+ float kind=a_data.z;float rnd=a_data.w;float tw=.5+.5*sin(u_t*(.9+a_data.y*1.8)+rnd*31.4);
+ vec3 p=mix(a_spawn,a_pos,u_intro);
+ float scale=1.+.027*sin(u_t*5.2)+u_beat*.048;
+ float depth=.62+.38*(p.z+1.)*.5;
+ if(kind<1.5){
+ p.xy*=scale;
+ p+=vec3(.004*sin(u_t*1.4+rnd*15.),.004*cos(u_t*1.1+rnd*31.),0.);
+ }else if(kind<2.5){
+ float an=atan(a_pos.y,a_pos.x)+u_t*.15*(.4+rnd);
+ p.x=cos(an)*(1.36+.16*rnd);p.y=sin(an)*(.67+.08*rnd)-.04;
+ p.z=sin(an*1.2+rnd*10.)*.25;
+ }else if(kind>2.5&&kind<3.5){
+ p.x+=sin(u_t*.055+rnd*25.)*.03;
+ p.y+=cos(u_t*.07+rnd*31.)*.03;
+ }else if(kind>3.5){
+ float age=max(0.,u_hitAge);
+ float theta=a_data.x*6.283185;
+ p.x=(u_hit.x-.5)*2.35+cos(theta)*(age*.72+age*age*.18)*(.22+rnd*.8);
+ p.y=(.51-u_hit.y)*3.8+sin(theta)*(age*.72+age*age*.18)*(.22+rnd*.8)-age*age*.14;
+ p.z=0.;
+ }
+ float yaw=(u_yaw+sin(u_t*.27)*.27),pitch=u_pitch+sin(u_t*.19)*.075;
+ float cy=cos(yaw),sy=sin(yaw),cp=cos(pitch),sp=sin(pitch);
+ if(kind<2.7){
+ p=vec3(p.x*cy+p.z*sy,p.y,-p.x*sy+p.z*cy);
+ p=vec3(p.x,p.y*cp-p.z*sp,p.y*sp+p.z*cp);
+ }
+ float persp=3.9/(3.9-p.z*.58);
+ float base=242.;
+ vec2 xy=vec2(360.,665.)+vec2(p.x,-p.y)*base*persp;
+ if(kind>2.5&&kind<3.5){xy=vec2(360.,661.)+p.xy*vec2(310.,310.);}
+ if(kind>3.5){xy=vec2(360.,661.)+p.xy*vec2(255.,260.);}
+ vec2 clip=xy/u_res*2.-1.;
+ gl_Position=vec4(clip.x,-clip.y,0.,1.);
+ float sz=2.3+2.5*pow(rnd,8.);
+ float alpha=.22+.42*tw;
+ if(kind>.5&&kind<1.5){sz=2.5+5.2*pow(rnd,8.);alpha=.42+.43*tw;}
+ if(kind>1.5&&kind<2.5){sz=1.3+2.8*pow(rnd,5.);alpha=.23+.26*tw;}
+ if(kind>2.5&&kind<3.5){sz=.9+3.0*pow(rnd,9.);alpha=.24+.38*tw;}
+ if(kind>3.5){sz=2.6+4.8*rnd;alpha=(1.-smoothstep(.6,2.0,u_hitAge))*(.58+.25*tw);}
+ if(kind<1.5){alpha*=.80+.36*u_beat;}
+ if(u_pass<.5){sz*=4.8;alpha*=.13;}else{alpha*=.72;}
+ if(kind<2.6)alpha*=.18+.82*u_intro;
+ v_rgb=palette(rnd+.02*tw,kind);
+ v_alpha=alpha;
+ gl_PointSize=min(55.,sz*persp);
+ if(kind>3.5&&u_hitAge>2.0)gl_PointSize=0.;
+}
+`,`
+precision mediump float;
+varying vec3 v_rgb;varying float v_alpha;uniform mediump float u_pass;
+void main(){
+ vec2 d=gl_PointCoord-.5;float r2=dot(d,d)*4.;
+ float halo=exp(-r2*(u_pass<.5?4.0:13.0));
+ float spark=exp(-r2*23.);
+ float opacity=halo*v_alpha;
+ vec3 c=v_rgb*(1.+.75*spark);
+ gl_FragColor=vec4(c,opacity);
+}
+`);
+ function uploadData(data){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(data),gl.STATIC_DRAW);return {b,n:data.length/10}}
+ function add(arr,x,y,z,sx,sy,sz,size,phase,kind,r){arr.push(x,y,z,sx,sy,sz,size,phase,kind,r)}
+ function implicit(x,y,z){const a=x*x+2.25*z*z+y*y-1.;return a*a*a-x*x*y*y*y-.1125*z*z*y*y*y}
+ const heartData=[];
+ const count=reduceMotion?4500:(mobile?12500:23000),shellN=reduceMotion?1150:(mobile?4400:7800);
+ for(let i=0;i<count;i++){
+  let x=0,y=0,z=0;
+  for(let j=0;j<220;j++){x=(rand()*2-1)*1.17;y=rand()*2.28-.98;z=(rand()*2-1)*.74;if(implicit(x,y,z)<=0)break;}
+  const r=rand();add(heartData,x,y,z,(rand()-.5)*5,(rand()-.5)*7,(rand()-.5)*2,1,rand(),0,r);
+ }
+ for(let i=0;i<shellN;i++){
+  let x=0,y=0,z=0;
+  for(let j=0;j<500;j++){
+   x=(rand()*2-1)*1.17;y=rand()*2.28-.98;z=(rand()*2-1)*.74;
+   if(implicit(x,y,z)<0&&implicit(x*1.04,y*1.04,z*1.04)>0)break;
+  }
+  add(heartData,x,y,z,(rand()-.5)*4,(rand()-.5)*6,(rand()-.5)*2,1,rand(),1,rand());
+ }
+ for(let i=0;i<(reduceMotion?150:(mobile?900:1800));i++){
+  const a=rand(TAU);add(heartData,Math.cos(a)*1.42,Math.sin(a)*.76,Math.sin(a*2)*.3,(rand()-.5)*6,(rand()-.5)*7,(rand()-.5),1,rand(),2,rand());
+ }
+ const stars=[];for(let i=0;i<(reduceMotion?300:(mobile?1000:1600));i++){
+  const x=(rand()-.5)*5.1,y=(rand()-.5)*8.4;
+  add(stars,x,y,0,x,y,0,1,rand(),3,rand());
+ }
+ const bursts=[];for(let i=0;i<900;i++)add(bursts,0,0,0,0,0,0,rand(),rand(),4,rand());
+ const batches=[uploadData(heartData),uploadData(stars),uploadData(bursts)];
+ const quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+ const bgPos=gl.getAttribLocation(bg,'a_xy');
+ const au=['u_res','u_t','u_intro','u_beat','u_yaw','u_pitch','u_pass','u_theme','u_hit','u_hitAge'];
+ const u=Object.fromEntries(au.map(n=>[n,gl.getUniformLocation(pts,n)]));
+ const bgu=Object.fromEntries(['u_res','u_t','u_beat','u_theme'].map(n=>[n,gl.getUniformLocation(bg,n)]));
+ const attr=['a_pos','a_spawn','a_data'].map(n=>gl.getAttribLocation(pts,n));
+ function applyUniforms(p,loc,t){gl.useProgram(p);gl.uniform2f(loc.u_res,W,H);gl.uniform1f(loc.u_t,t);gl.uniform1f(loc.u_beat,beatLevel);gl.uniform1f(loc.u_theme,CONFIG.theme)}
+ function drawBatch(batch){gl.bindBuffer(gl.ARRAY_BUFFER,batch.b);for(let i=0;i<3;i++){gl.enableVertexAttribArray(attr[i]);gl.vertexAttribPointer(attr[i],i===2?4:3,gl.FLOAT,false,40,i===0?0:i===1?12:24)}gl.drawArrays(gl.POINTS,0,batch.n)}
+ gl.viewport(0,0,W,H);gl.disable(gl.DEPTH_TEST);gl.clearColor(0,0,0,1);
+ renderScene=t=>{
+  gl.disable(gl.BLEND);applyUniforms(bg,bgu,t);gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(bgPos);gl.vertexAttribPointer(bgPos,2,gl.FLOAT,false,0,0);gl.drawArrays(gl.TRIANGLES,0,6);
+  gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE);applyUniforms(pts,u,t);
+  gl.uniform1f(u.u_intro,reduceMotion?1:Math.min(1,1-Math.pow(Math.max(0,1-Math.max(0,t-(introStart-start)*.001)/3.1),3)));
+  gl.uniform1f(u.u_yaw,mouseYaw);gl.uniform1f(u.u_pitch,mousePitch);
+  gl.uniform2f(u.u_hit,mouseX,mouseY);gl.uniform1f(u.u_hitAge,t-clickStart);
+  for(const pass of [0,1]){gl.uniform1f(u.u_pass,pass);for(const batch of batches)drawBatch(batch)}
+  gl.disable(gl.BLEND);
+ };
+ webglRenderReady=true;
+ }catch(e){setStatus('图形初始化失败：'+e.message);console.error(e)}
+ }else{setStatus('当前为兼容模式 · 可正常观看、播放音乐与录制')}
+// 无 GPU / WebGL 被禁用时采用轻量 Canvas 2D 渲染，保留真正的三维坐标旋转与粒子爆发。
+if(!webglRenderReady){
+ if(gl){let fresh=document.createElement('canvas');fresh.id='scene';fresh.width=W;fresh.height=H;scene.replaceWith(fresh);scene=fresh;}
+ const c=scene.getContext('2d',{alpha:false});
+ function bodyPoint(){
+  let x=0,y=0,z=0;
+  for(let j=0;j<1200;j++){
+   x=(rand()*2-1)*1.17;y=rand()*2.28-.98;z=(rand()*2-1)*.74;
+   const a=x*x+2.25*z*z+y*y-1;
+   if(a*a*a-x*x*y*y*y-.1125*z*z*y*y*y<0)break;
+  }
+  return [x,y,z];
+ }
+ const ps=[];
+ for(let i=0;i<(reduceMotion?800:(mobile?2000:3600));i++){
+  const p=bodyPoint();ps.push({x:p[0],y:p[1],z:p[2],phase:rand(TAU),r:rand(),kind:0,sx:(rand()-.5)*5,sy:(rand()-.5)*7});
+ }
+ for(let i=0;i<(reduceMotion?400:(mobile?850:1500));i++){
+  let p;
+  for(let j=0;j<800;j++){
+   p=bodyPoint();let a=p[0]*1.048,b=p[1]*1.048,z=p[2]*1.048;
+   let k=a*a+2.25*z*z+b*b-1;
+   if(k*k*k-a*a*b*b*b-.1125*z*z*b*b*b>0)break;
+  }
+  ps.push({x:p[0],y:p[1],z:p[2],phase:rand(TAU),r:rand(),kind:1,sx:(rand()-.5)*5,sy:(rand()-.5)*7});
+ }
+ const bgstars=Array.from({length:430},()=>({x:rand(W),y:rand(H),r:.4+rand(1.4),seed:rand(TAU)}));
+ let lastFallback=-1;
+ function sprite(hex){const el=document.createElement('canvas');el.width=el.height=64;const cx=el.getContext('2d');const g=cx.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.08,'rgba(255,248,252,.96)');g.addColorStop(.21,hex+'d8');g.addColorStop(.52,hex+'44');g.addColorStop(1,hex+'00');cx.fillStyle=g;cx.fillRect(0,0,64,64);return el;}
+ const sv=themes.map(th=>[sprite(th.a),sprite(th.b),sprite(th.c)]);
+ renderScene=t=>{
+  if(t-lastFallback<1/32)return;lastFallback=t;
+  c.globalCompositeOperation='source-over';c.globalAlpha=1;c.fillStyle='#090415';c.fillRect(0,0,W,H);
+  const th=themes[CONFIG.theme],spr=sv[CONFIG.theme];
+  let g=c.createRadialGradient(360,665,20,360,665,550);g.addColorStop(0,th.a+'26');g.addColorStop(.6,th.c+'08');g.addColorStop(1,'#07020e00');c.fillStyle=g;c.fillRect(0,0,W,H);
+  const intro=reduceMotion?1:Math.min(1,1-Math.pow(Math.max(0,1-t/3.1),3));
+  c.globalCompositeOperation='lighter';
+  for(const st of bgstars){
+   const a=.2+.4*(.5+.5*Math.sin(t*1.1+st.seed));c.globalAlpha=a;
+   c.drawImage(spr[1],st.x-st.r*4,st.y-st.r*4,st.r*8,st.r*8);
+  }
+  const yaw=mouseYaw+Math.sin(t*.27)*.27,pitch=mousePitch+Math.sin(t*.19)*.075,cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+  const swell=1+.027*Math.sin(t*5.2)+beatLevel*.047;
+  for(const p of ps){
+   let x=p.x*intro+p.sx*(1-intro),y=p.y*intro+p.sy*(1-intro),z=p.z;
+   x*=swell;y*=swell;
+   const xx=x*cy+z*sy,zz=-x*sy+z*cy,yy=y*cp-zz*sp,zz2=y*sp+zz*cp;
+   const scale=242*3.9/(3.9-zz2*.58),px=360+xx*scale,py=624-yy*scale;
+   if(px<-35||px>755||py<-35||py>1315)continue;
+   const flick=.65+.35*Math.sin(p.phase+t*(.65+p.r));
+   c.globalAlpha=(p.kind?.50:.32)*flick*(.3+.7*intro);
+   const radius=(p.kind?5.0:3.0)+p.r*(p.kind?4.6:3.1);
+   const which=p.kind?(p.r<.34?0:1):(p.r<.08?2:0);
+   c.drawImage(spr[which],px-radius,py-radius,radius*2,radius*2);
+  }
+  // A stream of miniature comets defines the orbiting ring.
+  for(let j=0;j<250;j++){
+   const a=j*TAU/250+t*.16,px=360+Math.cos(a)*325,py=624+Math.sin(a)*140;
+   c.globalAlpha=.08+.16*(1+Math.sin(j*.17+t*1.3))/2;
+   const r=j%17===0?9:4;c.drawImage(spr[j%5===0?1:0],px-r,py-r,r*2,r*2);
+  }
+  const age=t-clickStart;
+  if(age>=0&&age<2){
+   for(let j=0;j<170;j++){
+    const a=j*2.39996,spd=.42+(j%11)*.045,x=mouseX*W+Math.cos(a)*age*spd*220,y=mouseY*H+Math.sin(a)*age*spd*215+age*age*12;
+    c.globalAlpha=.65*(1-age/2);c.drawImage(spr[j%4?0:1],x-8,y-8,16,16);
+   }
+  }
+  c.globalAlpha=1;c.globalCompositeOperation='source-over';
+ };
+}
+// ===== Pure visual overlay: starlight, orbit tracers, music-responsive corona; no text =====
+function overlayDraw(t){
+ o.clearRect(0,0,W,H);
+ const theme=themes[CONFIG.theme],fade=Math.min(1,t/1.6);
+ o.save();
+ // Fine orbital paths, barely visible until the heart forms.
+ o.translate(360,665);
+ o.rotate(-.20+Math.sin(t*.22)*.06);
+ o.strokeStyle=theme.a+'26';o.globalAlpha=.55*fade;o.lineWidth=1.1;
+ o.beginPath();o.ellipse(0,0,324,163,0,0,TAU);o.stroke();
+ o.rotate(.66);o.strokeStyle=theme.b+'17';o.beginPath();o.ellipse(0,0,316,224,0,0,TAU);o.stroke();
+ o.restore();
+ // A luminous pulse in response to music.
+ if(beat>.015){o.save();o.strokeStyle=theme.a;o.globalAlpha=beat*.2;
+  o.lineWidth=1+beat*3;o.beginPath();o.ellipse(360,665,284+beat*22,242+beat*22,0,0,TAU);o.stroke();o.restore();}
+ // Sparkles around the heart, no captions.
+ for(let i=0;i<22;i++){
+  const a=i*2.399963+t*(i%2?.08:-.07),r=272+26*Math.sin(i*3.1+t*.29),x=360+Math.cos(a)*r,y=665+Math.sin(a)*r*.92;
+  const strength=(.12+.35*(1+Math.sin(t*2.25+i*2.77))/2)*fade;
+  o.save();o.strokeStyle=theme.b;o.globalAlpha=strength;o.lineWidth=.8;
+  const len=i%4===0?9:5;o.beginPath();o.moveTo(x-len,y);o.lineTo(x+len,y);o.moveTo(x,y-len);o.lineTo(x,y+len);o.stroke();o.restore();
+ }
+}
+// ===== Web Audio：原创合成器 BGM + 导入歌曲节拍响应 + 录音音轨 =====
+let ac,master,analyser,fft,mediaDestination,audioEl,audioSource,audioUrl;
+let synth=false,timer=null,step=0,nextBeat=0,energy=0,lastHit=-10,activeRecording=false,recorder=null,recordTimer=null;
+const pitches=[74,77,81,77,72,77,79,77,74,77,81,84,79,77,74,72,69,72,77,81,77,72,74,77,67,72,76,79,76,72,69,72];
+const chords=[[50,57,62,65],[46,53,58,62],[41,48,53,57],[48,55,60,64]];
+const noteHz=midi=>440*Math.pow(2,(midi-69)/12);
+async function audioInit(){
+ if(!ac){
+  ac=new (window.AudioContext||window.webkitAudioContext)();
+  master=ac.createGain();master.gain.value=.87;
+  analyser=ac.createAnalyser();analyser.fftSize=1024;analyser.smoothingTimeConstant=.76;
+  fft=new Uint8Array(analyser.frequencyBinCount);
+  mediaDestination=ac.createMediaStreamDestination();
+  master.connect(analyser);analyser.connect(ac.destination);master.connect(mediaDestination);
+ }
+ if(ac.state!=='running')await ac.resume();
+}
+function tone(n,t,d,v,type='sine',attack=.02){
+ const osc=ac.createOscillator(),g=ac.createGain(),f=ac.createBiquadFilter();
+ osc.type=type;osc.frequency.setValueAtTime(noteHz(n),t);
+ if(type!=='sine'){f.type='lowpass';f.frequency.value=1800}else{f.type='lowpass';f.frequency.value=5100}
+ g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(Math.max(v,.0002),t+attack);
+ g.gain.exponentialRampToValueAtTime(.0001,t+d);
+ osc.connect(f);f.connect(g);g.connect(master);osc.start(t);osc.stop(t+d+.03);
+ osc.onended=()=>{osc.disconnect();f.disconnect();g.disconnect()};
+}
+function heartbeatDrum(t){
+ // Gentle synthesized cinematic heartbeat, original and self-contained.
+ const osc=ac.createOscillator(), g=ac.createGain();
+ osc.type='sine';osc.frequency.setValueAtTime(136,t);osc.frequency.exponentialRampToValueAtTime(47,t+.15);
+ g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.17,t+.009);
+ g.gain.exponentialRampToValueAtTime(.0001,t+.24);
+ osc.connect(g);g.connect(master);osc.start(t);osc.stop(t+.27);
+ osc.onended=()=>{osc.disconnect();g.disconnect()};
+}
+function sequencer(){
+ if(!synth||!ac)return;
+ while(nextBeat<ac.currentTime+.15){
+  const s=step%32,n=pitches[s],chord=chords[Math.floor(s/8)%4];
+  if(s%2===0){tone(n,nextBeat,.52,.105,'sine');tone(n+12,nextBeat,.28,.019,'triangle');}
+  else{tone(n,nextBeat,.29,.053,'sine');}
+  if(s%8===0){for(const c of chord)tone(c,nextBeat,2.9,.021,'triangle',.11);}
+  if(s%4===0){tone(chord[0]-12,nextBeat,.65,.055,'sine',.012);heartbeatDrum(nextBeat);}
+  if(s%2===0){const wait=(nextBeat-ac.currentTime)*1000;setTimeout(()=>{if(synth){beat=1;beatLevel=Math.max(beatLevel,.68)}},Math.max(0,wait));}
+  nextBeat+=.2875;step++;
+ }
+}
+function stopSynth(){synth=false;if(timer)clearInterval(timer);timer=null}
+function audioButton(){const on=synth||!!(audioEl&&!audioEl.paused);soundBtn.dataset.playing=String(on);soundBtn.setAttribute('aria-label',on?'暂停音乐':'播放音乐');}
+async function playMusic(){await audioInit();if(audioEl&&audioEl.src){await audioEl.play();stopSynth()}else{if(!synth){synth=true;nextBeat=ac.currentTime+.04;sequencer();timer=setInterval(sequencer,32)}}audioButton()}
+function pauseMusic(){stopSynth();if(audioEl&&!audioEl.paused)audioEl.pause();audioButton()}
+soundBtn.onclick=async()=>{try{if(synth||(audioEl&&!audioEl.paused))pauseMusic();else await playMusic()}catch(e){setStatus('无法播放音乐：'+e.message);console.error(e)}};
+musicFile.onchange=async()=>{
+ const f=musicFile.files&&musicFile.files[0];if(!f)return;
+ try{await audioInit();pauseMusic();if(!audioEl){audioEl=document.createElement('audio');audioEl.loop=true;audioSource=ac.createMediaElementSource(audioEl);audioSource.connect(master);audioEl.addEventListener('pause',audioButton);audioEl.addEventListener('play',audioButton)}
+ if(audioUrl)URL.revokeObjectURL(audioUrl);audioUrl=URL.createObjectURL(f);audioEl.src=audioUrl;await audioEl.play();setStatus('正在播放 '+f.name+' · 粒子随节奏律动');audioButton();
+ }catch(e){setStatus('音乐导入失败：'+e.message);console.error(e)}
+};
+function analyze(t){if(analyser&&(synth||(audioEl&&!audioEl.paused))){
+ analyser.getByteFrequencyData(fft);let low=0,all=0;for(let i=2;i<14;i++)low+=fft[i];for(let i=4;i<86;i++)all+=fft[i];low/=12*255;all/=82*255;
+ energy+= (low-energy)*.10;let wanted=Math.min(.52,low*.42+all*.18);
+ if(audioEl&&!audioEl.paused){if(low>Math.max(.17,energy*1.16)&&t-lastHit>.24){beat=1;lastHit=t}}
+ beatLevel+=(wanted+beat*.5-beatLevel)*.22;
+ }else{beatLevel+=(0-beatLevel)*.085;}
+ beat*=.944;
+}
+// ===== 录制：合成 GPU 画面 + 文字画布 + 当前 Web Audio 音轨 =====
+const movie=document.createElement('canvas');movie.width=W;movie.height=H;const mc=movie.getContext('2d',{alpha:false});
+function compose(){mc.drawImage(scene,0,0,W,H);mc.drawImage(overlay,0,0,W,H)}
+photoBtn.onclick=()=>{compose();movie.toBlob(b=>{if(b){blobDownload(b,'Particle_Heart_No_Text_9x16.png');setStatus('已保存 720×1280 高清竖屏封面')}},'image/png')};
+async function startRecord(){
+ if(activeRecording){recorder&&recorder.state!=='inactive'&&recorder.stop();return}
+ if(!movie.captureStream||typeof MediaRecorder==='undefined'){setStatus('当前浏览器不支持录制，请使用 Chrome 或 Edge');return}
+ try{
+  await audioInit();if(!synth&&(!audioEl||audioEl.paused))await playMusic();
+  const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4;codecs=h264,aac','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m));
+  if(!mime){setStatus('该浏览器不支持 Canvas 视频录制，可使用电脑 Chrome/Edge 录制');return}
+  compose();const stream=movie.captureStream(30);
+  const audioTracks=mediaDestination.stream.getAudioTracks();for(const tr of audioTracks)stream.addTrack(tr);
+  const chunks=[];recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:7000000,audioBitsPerSecond:128000});
+  recorder.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+  recorder.onerror=e=>{setStatus('录制中断：'+(e.error?.message||'未知错误'))};
+  recorder.onstop=()=>{
+   clearTimeout(recordTimer);activeRecording=false;recordBtn.dataset.recording='false';recordBtn.setAttribute('aria-label','开始录制15秒视频');
+   stream.getVideoTracks().forEach(tr=>tr.stop());
+   const b=new Blob(chunks,{type:mime});if(b.size>0){blobDownload(b,'Particle_Heart_720x1280_music.'+(mime.startsWith('video/mp4')?'mp4':'webm'));setStatus('带音乐的竖屏视频已保存')}else setStatus('没有录到有效视频，请重试');
+  };
+  recorder.start(1000);activeRecording=true;recordBtn.dataset.recording='true';recordBtn.setAttribute('aria-label','结束录制');setStatus('正在录制 15 秒 · 竖屏 + 音乐同步');
+  recordTimer=setTimeout(()=>{if(recorder&&recorder.state!=='inactive')recorder.stop()},15000);
+ }catch(e){setStatus('录制失败：'+e.message);console.error(e)}
+}
+recordBtn.onclick=startRecord;
+let attemptedTapMusic=false;
+let last=0;function tick(now){const t=(now-start)/1000;
+ analyze(t);try{renderScene(t);overlayDraw(t);if(activeRecording)compose()}catch(e){if(now-last>4000){console.error(e);last=now}}
+ requestAnimationFrame(tick)}requestAnimationFrame(tick);
+// Mouse/touch: rotate 3D heart, tap to burst stardust
+scene.addEventListener('pointerdown',e=>{pointer={x:e.clientX,y:e.clientY,yaw:mouseYaw,pitch:mousePitch,moved:false,id:e.pointerId};scene.setPointerCapture(e.pointerId)});
+scene.addEventListener('pointermove',e=>{if(!pointer||pointer.id!==e.pointerId)return;
+ const dx=e.clientX-pointer.x,dy=e.clientY-pointer.y;
+ if(Math.abs(dx)+Math.abs(dy)>8)pointer.moved=true;
+ if(pointer.moved){mouseYaw=pointer.yaw+dx*.005;mousePitch=Math.max(-.5,Math.min(.5,pointer.pitch+dy*.004))}
+});
+scene.addEventListener('pointerup',e=>{if(!pointer||pointer.id!==e.pointerId)return;
+ if(!pointer.moved){const rc=scene.getBoundingClientRect();mouseX=(e.clientX-rc.left)/rc.width;mouseY=(e.clientY-rc.top)/rc.height;clickStart=(performance.now()-start)/1000;beat=1;beatLevel=Math.max(beatLevel,.85);if(!attemptedTapMusic){attemptedTapMusic=true;playMusic().catch(err=>{setStatus('触摸音乐播放失败：'+err.message)})}}pointer=null;
+});
+scene.addEventListener('pointercancel',()=>pointer=null);
+window.addEventListener('pagehide',()=>{stopSynth();if(audioUrl)URL.revokeObjectURL(audioUrl)});
+// 测试接口：检查渲染是否成功；不会执行网络请求。
+window.__HEART_READY__={version:'3.0-pure',webgl:webglRenderReady,resolution:[W,H],themes:4,noText:true};
+})();
+</script>
+</body>
+</html>
